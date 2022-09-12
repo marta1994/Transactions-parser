@@ -1,0 +1,3 @@
+- Check all non-salary + transactions. It's usually returns from shops, so shouldn't be considered as income/expences
+- consider ETF/gold purchases as non expenses
+- Check cash withdrawal
