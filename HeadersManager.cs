@@ -30,7 +30,7 @@ namespace ParseKonto
             return GetHeaders();
         }
 
-        private Dictionary<string, string> GetHeaders()
+        internal Dictionary<string, string> GetHeaders()
         {
             var valRange = _sheetManager.Service.Spreadsheets.Values.Get(
                 SheetManager.SheetId, $"{SheetManager.TableName}!A1:1").Execute();
