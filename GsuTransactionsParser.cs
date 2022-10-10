@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Globalization;
 
 namespace ParseKonto
 {
@@ -19,10 +14,9 @@ namespace ParseKonto
 
         private readonly ValuesWriter _valuesWriter;
         private readonly HeadersManager _headersManager;
-        private readonly SortedDictionary<DateOnly, float> _currency;
+        private readonly CurrencyManager _currencyManager;
         private const string _withdrawalPath = "../../../Input data/GSU Withdrawals Report.csv";
         private const string _releasesPath = "../../../Input data/GSU Releases Report.csv";
-        private const string _currencyPathTemplate = "../../../Input data/CURRENCY_EUR_USD_{0}.csv";
         private const string _dateCol = "Date";
         private const string _priceCol = "Price";
         private const string _quantityCol = "Quantity";
@@ -33,11 +27,11 @@ namespace ParseKonto
         private const string _outDateFormat = "yyyy-MM-dd";
         private const double _eps = 0.0001;
 
-        internal GsuTransactionsParser(ValuesWriter valuesWriter, HeadersManager headersManager)
+        internal GsuTransactionsParser(ValuesWriter valuesWriter, HeadersManager headersManager, CurrencyManager currencyManager)
         {
             _valuesWriter = valuesWriter;
             _headersManager = headersManager;
-            _currency = LoadCurrency();
+            _currencyManager = currencyManager;
         }
 
         internal void ParseGsus()
@@ -53,25 +47,6 @@ namespace ParseKonto
             List<Dictionary<string, object>> result = new List<Dictionary<string, object>>();
             var sharePrices = ParseReleases(result);
             ParseWithdrawals(result, sharePrices);
-            return result;
-        }
-
-        private SortedDictionary<DateOnly, float> LoadCurrency()
-        {
-            var result = new SortedDictionary<DateOnly, float>();
-            for (var year = 2020; year <= DateTime.Now.Year; year++)
-            {
-                var lines = File.ReadAllLines(string.Format(_currencyPathTemplate, year));
-                var headersIndexes = GetHeaderIndexes(lines[0]);
-                foreach(var line in lines.Skip(1))
-                {
-                    var vals = line.Split(',');
-                    var date = DateOnly.ParseExact(vals[headersIndexes["Date"]], "MM/dd/yyyy");
-                    var low = float.Parse(vals[headersIndexes["Low"]].Trim('"'));
-                    var high = float.Parse(vals[headersIndexes["High"]].Trim('"'));
-                    result.Add(date, (low + high) / 2);
-                }
-            }
             return result;
         }
 
@@ -93,13 +68,13 @@ namespace ParseKonto
                 values.Add(Headers.Date, date.ToString(_outDateFormat));
                 var gsuNumber = float.Parse(vals[headersIndexes[_quantityCol]].Trim('"'));
                 gsuNumber = Math.Abs(date < splitDate ? gsuNumber * 20 : gsuNumber);
-                values.Add(Headers.GsuNumber, gsuNumber);
+                values.Add(Headers.GsuNumber, -gsuNumber);
                 var pricePerGsu = float.Parse(vals[headersIndexes[_priceCol]].Trim('"').Trim('$'));
                 pricePerGsu = date < splitDate ? pricePerGsu / 20 : pricePerGsu;
                 values.Add(Headers.PricePerGsu, pricePerGsu);
                 var netAmount = float.Parse(vals[headersIndexes[_netAmountCol]].Trim('"').Trim('$'));
                 values.Add(Headers.UsdSum, netAmount);
-                var usdToEur = GetCurrencyRatio(date);
+                var usdToEur = _currencyManager.GetCurrencyRatio(date);
                 var eurSale = netAmount / usdToEur;
                 float vestPrice = 0;
                 float vestCount = 0;
@@ -149,7 +124,7 @@ namespace ParseKonto
                 var pricePerGsu = float.Parse(vals[headersIndexes[_priceCol]].Trim('$'));
                 values.Add(Headers.PricePerGsu, pricePerGsu);
                 values.Add(Headers.UsdSum, pricePerGsu * gsuNumber);
-                var usdToEur = GetCurrencyRatio(date);
+                var usdToEur = _currencyManager.GetCurrencyRatio(date);
                 sharePrices.Add(new GsuTransaction
                 {
                     EurPricePerGsu = pricePerGsu / usdToEur,
@@ -162,19 +137,6 @@ namespace ParseKonto
             }
             sharePrices = sharePrices.OrderBy(p => p.Date).ToList();
             return sharePrices;
-        }
-
-        private float GetCurrencyRatio(DateOnly date)
-        {
-            var keys = new List<DateOnly>(_currency.Keys);
-            var nearestDateInd = -1;
-            while(nearestDateInd < 0)
-            {
-                nearestDateInd = keys.BinarySearch(date);
-                date = date.AddDays(1);
-            }
-            
-            return _currency[keys[nearestDateInd]];
         }
 
         private Dictionary<string, int> GetHeaderIndexes(string headerLine)
